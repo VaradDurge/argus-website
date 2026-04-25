@@ -1,6 +1,0 @@
-{
-  "buildCommand": "cd argus-site && npm run build",
-  "outputDirectory": "argus-site/.next",
-  "installCommand": "cd argus-site && npm install",
-  "framework": "nextjs"
-}
