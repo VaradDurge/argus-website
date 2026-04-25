@@ -1,12 +1,157 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import GradientText from "@/components/ui/GradientText";
 
 const SOFT_EASE = [0.16, 1, 0.3, 1] as const;
 
 type Step = 1 | 2 | 3 | 4 | 5;
 type Phase = "prelude" | "steps";
+
+// ─── Tour config ──────────────────────────────────────────────────────────────
+// cardTopPx = position of the target line's vertical center from the TOP of
+// the terminal card element (including chrome bar ~36px + step pills ~48px =
+// ~84px offset, then + targetPx within the body: 20px padding + line heights).
+// Line height: text-[10.5px] leading-[1.75] ≈ 18.4px. Blank = 10px.
+
+interface TourConfig {
+  title: string;
+  body: string;
+  ctaLabel: string | null;
+  cardTopPx: number;
+}
+
+function getTourConfig(step: Step, step3Fixed: boolean): TourConfig {
+  // Step 1: WebSearchTool warn line. Body offset: 84px header + 20px py-5 + 103px content = 207px
+  if (step === 1) return {
+    title: "Silent failure detected",
+    body: "WebSearchTool missed a required output field — this silently degraded all 4 downstream nodes.",
+    ctaLabel: "Inspect failure",
+    cardTopPx: 216,
+  };
+  // Step 2: "enriched_context": undefined. Body offset: 84 + 20 + 262px content = 366px
+  if (step === 2) return {
+    title: "Root cause found",
+    body: '"enriched_context": undefined — never produced. Every downstream agent silently failed waiting for it.',
+    ctaLabel: "Replay from here",
+    cardTopPx: 375,
+  };
+  // Step 3: BugLine (commented line 18). Body offset: 84 + 20 + badge 44px + editor header 28px + 4 lines = 248px
+  if (step === 3 && !step3Fixed) return {
+    title: "One-line fix",
+    body: "Uncomment this line to restore the output schema and unblock all downstream agents.",
+    ctaLabel: "Apply fix",
+    cardTopPx: 256,
+  };
+  if (step === 3 && step3Fixed) return {
+    title: "Fix applied",
+    body: "The enrichment call is restored. Argus can now replay from WebSearchTool with the fix in place.",
+    ctaLabel: "Run Replay",
+    cardTopPx: 256,
+  };
+  // Step 4: WebSearchTool "← Fixed!" row. Body offset: 84 + 20 + 132px content = 236px
+  if (step === 4) return {
+    title: "Replaying from fix point",
+    body: "Argus re-runs only from WebSearchTool — upstream nodes stay frozen, saving compute and cost.",
+    ctaLabel: "Compare runs",
+    cardTopPx: 244,
+  };
+  // Step 5: WebSearchTool FIXED row in diff. Body offset: 84 + 20 + 132px = 236px
+  return {
+    title: "Pipeline restored",
+    body: "One root cause. Four nodes fixed. Argus traced the failure across every downstream agent.",
+    ctaLabel: null,
+    cardTopPx: 244,
+  };
+}
+
+// ─── Tour card content (shared between desktop popover and mobile inline panel) ─
+
+function TourCardContent({
+  step, step3Fixed, onAction, compact,
+}: {
+  step: Step; step3Fixed: boolean; onAction: () => void; compact?: boolean;
+}) {
+  const config = getTourConfig(step, step3Fixed);
+  return (
+    <>
+      <div className={`flex items-center gap-1.5 ${compact ? "mb-2" : "mb-2.5"}`}>
+        <span className="font-mono text-[7.5px] tracking-[0.16em] uppercase text-white/20">
+          step {step}/5
+        </span>
+        <span className="text-white/[0.1] select-none">·</span>
+        <span className="font-mono text-[7.5px] tracking-[0.12em] uppercase text-white/20">
+          argus
+        </span>
+      </div>
+      <div className={`font-heading font-semibold text-white/80 leading-[1.25] ${compact ? "text-[11px] mb-1.5" : "text-[12.5px] mb-2"}`}>
+        {config.title}
+      </div>
+      <div className={`font-body text-white/42 leading-[1.62] ${compact ? "text-[9.5px] mb-2.5" : "text-[10.5px] mb-3.5"}`}>
+        {config.body}
+      </div>
+      {config.ctaLabel ? (
+        <motion.button
+          onClick={onAction}
+          whileHover={{ scale: 1.015 }}
+          whileTap={{ scale: 0.975 }}
+          className={`flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/86 font-heading font-semibold text-black/82 transition-all duration-200 hover:bg-white/78 hover:border-white/20 cursor-pointer ${
+            compact ? "px-3 py-1.5 text-[9.5px]" : "w-full justify-center px-3.5 py-2 text-[10.5px]"
+          }`}
+        >
+          {config.ctaLabel}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="opacity-40">
+            <path d="M2 5h6M5.5 2.5L8 5l-2.5 2.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </motion.button>
+      ) : (
+        <div className={`inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/16 bg-emerald-400/[0.055] ${compact ? "px-2.5 py-1" : "px-3 py-1.5"}`}>
+          <span className="text-emerald-400/75 text-[9px]">✓</span>
+          <span className="font-mono text-[8.5px] text-emerald-400/65 tracking-wide">pipeline clean</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─── GuidedTour — desktop-only floating popover (xl+) ────────────────────────
+
+function GuidedTour({ step, step3Fixed, onAction, targetTopPx }: { step: Step; step3Fixed: boolean; onAction: () => void; targetTopPx: number }) {
+  const tourKey = step === 3 ? `3-${step3Fixed}` : String(step);
+
+  return (
+    <div className="hidden xl:block pointer-events-none absolute inset-0 z-30">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={tourKey}
+          initial={{ opacity: 0, x: 14 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 14 }}
+          transition={{ duration: 0.3, ease: SOFT_EASE }}
+          className="pointer-events-auto absolute"
+          style={{
+            top: targetTopPx,
+            right: 0,
+            transform: "translateX(calc(100% + 18px)) translateY(-50%)",
+            width: 218,
+          }}
+        >
+          <div
+            className="rounded-2xl p-4"
+            style={{
+              background: "rgba(10,10,10,0.99)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              boxShadow: "0 0 0 1px rgba(255,255,255,0.02), 0 24px 60px rgba(0,0,0,0.88), 0 6px 20px rgba(0,0,0,0.55)",
+            }}
+          >
+            <TourCardContent step={step} step3Fixed={step3Fixed} onAction={onAction} />
+          </div>
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
 
 const STEP_META: { id: Step; title: string; cmd: string; cta: string }[] = [
   { id: 1, title: "Broken Run", cmd: "argus show", cta: "Inspect failure" },
@@ -244,7 +389,9 @@ function StepOne() {
       <Blank />
       <NodeLine num={1} name="RouterAgent" durationMs={112} status="pass" />
       <Blank />
-      <NodeLine num={2} name="WebSearchTool" durationMs={847} status="warn" />
+      <div data-tour-target>
+        <NodeLine num={2} name="WebSearchTool" durationMs={847} status="warn" />
+      </div>
       <DetailLine>
         <Dim>Field <span className="font-bold">&quot;enriched_context&quot;</span> missing from output schema</Dim>
       </DetailLine>
@@ -323,7 +470,9 @@ function StepTwo() {
       <div className="pl-2">
         <Line className="text-white/50">{"  {"}</Line>
         <Line className="text-white/50">{"    "}<span className="text-sky-300">&quot;search_results&quot;</span>: <span className="text-white/30">[...12 items]</span>,</Line>
-        <Line className="text-white/50">{"    "}<span className="text-sky-300">&quot;enriched_context&quot;</span>: <span className="text-red-400">undefined</span>,</Line>
+        <div data-tour-target>
+          <Line className="text-white/50">{"    "}<span className="text-sky-300">&quot;enriched_context&quot;</span>: <span className="text-red-400">undefined</span>,</Line>
+        </div>
         <Line className="text-white/50">{"    "}<span className="text-sky-300">&quot;query&quot;</span>: <span className="text-amber-300">&quot;latest AI research papers&quot;</span></Line>
         <Line className="text-white/50">{"  }"}</Line>
       </div>
@@ -357,7 +506,6 @@ function StepThree({ fixed, onApplyFix }: { fixed: boolean; onApplyFix: () => vo
 
   return (
     <div>
-      {/* Warning badge */}
       <div className="flex items-center gap-2 mb-3 px-1">
         <span className="inline-flex items-center gap-1.5 rounded border border-yellow-400/20 bg-yellow-400/[0.06] px-2.5 py-1 font-mono text-[9.5px] text-yellow-400/80">
           <span className="font-bold">⚠</span>
@@ -375,7 +523,6 @@ function StepThree({ fixed, onApplyFix }: { fixed: boolean; onApplyFix: () => vo
         )}
       </div>
 
-      {/* Code editor body */}
       <div
         className="rounded-lg overflow-hidden"
         style={{
@@ -383,7 +530,6 @@ function StepThree({ fixed, onApplyFix }: { fixed: boolean; onApplyFix: () => vo
           border: "1px solid rgba(255,255,255,0.055)",
         }}
       >
-        {/* Editor tab bar */}
         <div className="flex items-center gap-0 border-b border-white/[0.055] bg-white/[0.018]">
           <div className="flex items-center gap-1.5 px-3 py-1.5 border-r border-white/[0.055] bg-white/[0.04]">
             <span className="text-[8.5px] text-amber-400/60">●</span>
@@ -391,9 +537,7 @@ function StepThree({ fixed, onApplyFix }: { fixed: boolean; onApplyFix: () => vo
           </div>
         </div>
 
-        {/* Code lines */}
         <div className="px-0 py-2 font-mono text-[10px] leading-[1.8]">
-          {/* Line 14 */}
           <CodeLine num={lineNums[0]} className="text-white/30">
             <span className="text-sky-300/60">def</span>{" "}
             <span className="text-amber-300/70">run</span>
@@ -406,54 +550,45 @@ function StepThree({ fixed, onApplyFix }: { fixed: boolean; onApplyFix: () => vo
             <span className="text-white/40">:</span>
           </CodeLine>
 
-          {/* Line 15 */}
           <CodeLine num={lineNums[1]} className="text-white/30">
             {"    "}<span className="text-white/45">results = self.search_api.fetch(query, top_k)</span>
           </CodeLine>
 
-          {/* Line 16 - blank */}
           <CodeLine num={lineNums[2]} className="text-white/30">{""}</CodeLine>
 
-          {/* Line 17 - comment */}
           <CodeLine num={lineNums[3]} className="text-white/25">
             {"    "}<span className="text-white/22 italic"># Enrich results with additional context</span>
           </CodeLine>
 
-          {/* Line 18 - THE BUG LINE */}
-          <BugLine num={lineNums[4]} fixed={fixed} onFix={onApplyFix} />
+          <div data-tour-target>
+            <BugLine num={lineNums[4]} fixed={fixed} onFix={onApplyFix} />
+          </div>
 
-          {/* Line 19 - blank */}
           <CodeLine num={lineNums[5]} className="text-white/30">{""}</CodeLine>
 
-          {/* Line 20 */}
           <CodeLine num={lineNums[6]} className="text-white/30">
             {"    "}<span className="text-sky-300/60">return</span>{" "}
             <span className="text-white/40">{"{"}</span>
           </CodeLine>
 
-          {/* Line 21 */}
           <CodeLine num={lineNums[7]} className="text-white/30">
             {"        "}<span className="text-amber-300/60">&quot;search_results&quot;</span>
             <span className="text-white/40">: results,</span>
           </CodeLine>
 
-          {/* Line 22 - enriched_context return value */}
           <EnrichedReturnLine num={lineNums[8]} fixed={fixed} />
 
-          {/* Line 23 */}
           <CodeLine num={lineNums[9]} className="text-white/30">
             {"        "}<span className="text-amber-300/60">&quot;query&quot;</span>
             <span className="text-white/40">: query,</span>
           </CodeLine>
 
-          {/* Line 24 */}
           <CodeLine num={lineNums[10]} className="text-white/30">
             {"    "}<span className="text-white/40">{"}"}</span>
           </CodeLine>
         </div>
       </div>
 
-      {/* Fix instruction — only shown when not yet fixed */}
       {!fixed && (
         <motion.div
           initial={{ opacity: 0, y: 4 }}
@@ -592,26 +727,28 @@ function StepFourContent({ animate }: { animate: boolean }) {
         suffix={<span className="text-white/20 italic">{"    frozen · not re-run  ·  "}<span className="text-emerald-400/40">saves compute & cost</span></span>}
       />
       <Blank />
-      <NodeLine
-        num={2}
-        name="WebSearchTool"
-        durationMs={791}
-        status="pass"
-        suffix={
-          showFixed ? (
-            <motion.span
-              initial={{ opacity: 0, x: 4 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3 }}
-              className="text-emerald-400/80"
-            >
-              {"        ← Fixed!"}
-            </motion.span>
-          ) : (
-            <span className="text-white/20">{"        ..."}</span>
-          )
-        }
-      />
+      <div data-tour-target>
+        <NodeLine
+          num={2}
+          name="WebSearchTool"
+          durationMs={791}
+          status="pass"
+          suffix={
+            showFixed ? (
+              <motion.span
+                initial={{ opacity: 0, x: 4 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3 }}
+                className="text-emerald-400/80"
+              >
+                {"        ← Fixed!"}
+              </motion.span>
+            ) : (
+              <span className="text-white/20">{"        ..."}</span>
+            )
+          }
+        />
+      </div>
       <Blank />
       <NodeLine num={3} name="SummarizerAgent" durationMs={2156} status="pass" />
       <Blank />
@@ -671,15 +808,17 @@ function StepFive() {
         {"  "}<Dim>frozen · not re-run  ·  </Dim><span className="text-emerald-400/40 italic">saves compute & cost</span>
       </Line>
       <Blank />
-      <Line>
-        {"  "}<span className="text-white font-bold">WebSearchTool</span>
-        {"        "}
-        <span className="text-yellow-400 font-bold">pass</span>{" "}
-        <span className="text-yellow-400/60">(warnings)</span>
-        {"  "}<Dim>→</Dim>{"  "}
-        <span className="text-emerald-400 font-bold">pass</span>
-        {"  "}<span className="text-emerald-400 font-bold">FIXED</span>
-      </Line>
+      <div data-tour-target>
+        <Line>
+          {"  "}<span className="text-white font-bold">WebSearchTool</span>
+          {"        "}
+          <span className="text-yellow-400 font-bold">pass</span>{" "}
+          <span className="text-yellow-400/60">(warnings)</span>
+          {"  "}<Dim>→</Dim>{"  "}
+          <span className="text-emerald-400 font-bold">pass</span>
+          {"  "}<span className="text-emerald-400 font-bold">FIXED</span>
+        </Line>
+      </div>
       <DetailLine indent="       ">
         <span className="text-emerald-400 font-bold">✓</span>{" "}
         <Dim>missing field <span className="font-bold">&quot;enriched_context&quot;</span> now populated</Dim>
@@ -763,7 +902,26 @@ export default function DemoSection() {
   const [phase, setPhase] = useState<Phase>("prelude");
   const [step, setStep] = useState<Step>(1);
   const [step3Fixed, setStep3Fixed] = useState(false);
+  const [tourVisible, setTourVisible] = useState(false);
+  const [tourTargetTop, setTourTargetTop] = useState(216);
+  const outerRef = useRef<HTMLDivElement>(null);
   const current = STEP_META.find((s) => s.id === step) ?? STEP_META[0];
+
+  const measureTarget = useCallback(() => {
+    const container = outerRef.current;
+    if (!container) return;
+    const target = container.querySelector("[data-tour-target]");
+    if (!target) return;
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    setTourTargetTop(targetRect.top - containerRect.top + targetRect.height / 2);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "steps") return;
+    const timer = setTimeout(measureTarget, 420);
+    return () => clearTimeout(timer);
+  }, [step, step3Fixed, phase, measureTarget]);
 
   const handleNext = () => {
     if (step === 3 && !step3Fixed) {
@@ -780,14 +938,9 @@ export default function DemoSection() {
     setStep((prev) => (prev === 1 ? 1 : ((prev - 1) as Step)));
   };
 
-  const ctaLabel = step === 3 && step3Fixed ? "Run Replay →" : current.cta;
-  const nextDisabled = step === 5;
-
   return (
-    <section id="simulate" className="relative overflow-hidden border-t border-white/[0.04] bg-[#080808] py-30">
-      {/* Background layers — monochromatic, matches hero palette */}
+    <section id="simulate" className="relative border-t border-white/[0.04] bg-[#080808] py-30">
       <div className="pointer-events-none absolute inset-0">
-        {/* Dot grid */}
         <div
           className="absolute inset-0 opacity-[0.011]"
           style={{
@@ -796,8 +949,6 @@ export default function DemoSection() {
             backgroundSize: "32px 32px",
           }}
         />
-
-        {/* White radial from top-center — mirrors hero top-light */}
         <div
           className="absolute inset-0"
           style={{
@@ -805,8 +956,6 @@ export default function DemoSection() {
               "radial-gradient(ellipse 90% 52% at 50% 0%, rgba(255,255,255,0.055) 0%, transparent 70%)",
           }}
         />
-
-        {/* Soft center glow — lifts the terminal off the page */}
         <div
           className="absolute inset-0"
           style={{
@@ -814,8 +963,6 @@ export default function DemoSection() {
               "radial-gradient(ellipse 70% 48% at 50% 52%, rgba(255,255,255,0.028) 0%, transparent 68%)",
           }}
         />
-
-        {/* Vignette — deepens edges like hero */}
         <div
           className="absolute inset-0"
           style={{
@@ -823,8 +970,6 @@ export default function DemoSection() {
               "radial-gradient(ellipse 110% 110% at 50% 50%, transparent 40%, rgba(0,0,0,0.62) 100%)",
           }}
         />
-
-        {/* Faint warm-white blur orb behind the terminal card */}
         <div
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
           style={{
@@ -845,114 +990,135 @@ export default function DemoSection() {
           transition={{ duration: 0.42, ease: SOFT_EASE }}
           className="mx-auto max-w-2xl text-center"
         >
-          <motion.h2
-            animate={{
-              opacity: [0.78, 0.96, 0.78],
-              textShadow: [
-                "0 0 0px rgba(255,255,255,0.0)",
-                "0 0 18px rgba(255,255,255,0.22), 0 0 36px rgba(138,180,255,0.14)",
-                "0 0 0px rgba(255,255,255,0.0)",
-              ],
-            }}
-            transition={{
-              duration: 4.8,
-              ease: [0.16, 1, 0.3, 1],
-              repeat: Infinity,
-            }}
-            className="font-heading text-3xl font-semibold leading-[1.08] tracking-[-0.03em] text-white/85 lg:text-4xl"
-          >
-            See what actually went wrong
-          </motion.h2>
+          <h2 className="font-heading text-center tracking-[-0.03em]">
+            <span className="relative inline-flex items-center justify-center">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -inset-x-16 -inset-y-8"
+                style={{
+                  background:
+                    "radial-gradient(ellipse 70% 80% at 50% 50%, rgba(64,255,170,0.12) 0%, rgba(64,121,255,0.08) 40%, transparent 70%)",
+                  filter: "blur(40px)",
+                }}
+              />
+              <GradientText
+                colors={["#40ffaa", "#4079ff", "#40ffaa", "#4079ff", "#40ffaa"]}
+                animationSpeed={3}
+                showBorder={false}
+                className="text-3xl font-extrabold leading-[1.08] text-white/90 lg:text-4xl"
+              >
+                See what actually went wrong
+              </GradientText>
+            </span>
+          </h2>
           <p className="mt-5 font-body text-[15px] leading-relaxed text-white/40">
             A single failed run — from detection to root cause to fix to verified replay.
           </p>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-120px" }}
-          transition={{ duration: 0.48, delay: 0.08, ease: SOFT_EASE }}
-          className="mx-auto mt-12 w-full max-w-4xl overflow-hidden rounded-xl"
-          style={{
-            background: "linear-gradient(150deg, rgba(255,255,255,0.032) 0%, rgba(255,255,255,0.006) 100%)",
-            boxShadow:
-              "0 0 0 1px rgba(255,255,255,0.07), 0 32px 72px rgba(0,0,0,0.62), 0 0 80px rgba(255,255,255,0.03)",
-          }}
-        >
-          {/* Window chrome */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05] bg-white/[0.011]">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-red-500/55" />
-              <div className="w-2.5 h-2.5 rounded-full bg-amber-500/55" />
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/55" />
+        {/* Outer relative wrapper — GuidedTour positions itself relative to this */}
+        <div ref={outerRef} className="relative mx-auto mt-12 w-full max-w-4xl">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-120px" }}
+            transition={{ duration: 0.48, delay: 0.08, ease: SOFT_EASE }}
+            className="w-full rounded-xl overflow-hidden"
+            style={{
+              background: "linear-gradient(150deg, rgba(255,255,255,0.032) 0%, rgba(255,255,255,0.006) 100%)",
+              boxShadow:
+                "0 0 0 1px rgba(255,255,255,0.07), 0 32px 72px rgba(0,0,0,0.62), 0 0 80px rgba(255,255,255,0.03)",
+            }}
+          >
+            {/* Window chrome */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05] bg-white/[0.011]">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500/55" />
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500/55" />
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/55" />
+              </div>
+              <span className="text-white/18 text-[9.5px] font-mono">
+                {phase === "prelude" ? "terminal" : current.cmd}
+              </span>
+              <div className="w-[52px]" />
             </div>
-            <span className="text-white/18 text-[9.5px] font-mono">
-              {phase === "prelude" ? "terminal" : current.cmd}
-            </span>
-            <div className="w-[52px]" />
-          </div>
 
-          {/* Phase content */}
-          <AnimatePresence mode="wait">
-            {phase === "prelude" ? (
-              <motion.div
-                key="prelude"
-                initial={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.28, ease: SOFT_EASE }}
-                className="bg-black/22"
-              >
-                <TerminalPrelude onDone={() => setPhase("steps")} />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="steps"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.36, ease: SOFT_EASE }}
-              >
-                {/* Step pills */}
-                <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-white/[0.04] bg-black/12">
-                  {STEP_META.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        if (s.id !== 3) setStep3Fixed(false);
-                        setStep(s.id);
-                      }}
-                      className={`rounded-full border px-3.5 py-1.5 text-[10px] font-mono tracking-wide transition-all duration-300 ${
-                        step === s.id
-                          ? "border-white/24 bg-white/[0.1] text-white/85"
-                          : "border-white/[0.06] bg-white/[0.018] text-white/40 hover:text-white/62 hover:border-white/[0.12]"
-                      }`}
-                    >
-                      {s.id}. {s.title}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Terminal / editor body */}
-                <div className="min-h-[360px] overflow-x-auto px-3 py-5 bg-black/22">
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={step === 3 ? `3-${step3Fixed}` : step}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -6 }}
-                      transition={{ duration: 0.36, ease: SOFT_EASE }}
-                    >
-                      <StepView step={step} step3Fixed={step3Fixed} onApplyFix={() => setStep3Fixed(true)} />
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
-
-                {/* Footer nav */}
-                <div className="flex items-center justify-between gap-3 border-t border-white/[0.05] px-4 py-3 bg-white/[0.011]">
-                  <div className="text-[10px] font-mono text-white/24">
-                    step {step}/5
+            {/* Phase content */}
+            <AnimatePresence mode="wait">
+              {phase === "prelude" ? (
+                <motion.div
+                  key="prelude"
+                  initial={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.28, ease: SOFT_EASE }}
+                  className="bg-black/22"
+                >
+                  <TerminalPrelude onDone={() => { setPhase("steps"); setTourVisible(true); }} />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="steps"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.36, ease: SOFT_EASE }}
+                >
+                  {/* Step pills */}
+                  <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-white/[0.04] bg-black/12">
+                    {STEP_META.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          if (s.id !== 3) setStep3Fixed(false);
+                          setStep(s.id);
+                        }}
+                        className={`rounded-full border px-3.5 py-1.5 text-[10px] font-mono tracking-wide transition-all duration-300 ${
+                          step === s.id
+                            ? "border-white/24 bg-white/[0.1] text-white/85"
+                            : "border-white/[0.06] bg-white/[0.018] text-white/40 hover:text-white/62 hover:border-white/[0.12]"
+                        }`}
+                      >
+                        {s.id}. {s.title}
+                      </button>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  {/* Terminal / editor body */}
+                  <div className="min-h-[360px] overflow-x-auto px-3 py-5 bg-black/22">
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={step === 3 ? `3-${step3Fixed}` : step}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.36, ease: SOFT_EASE }}
+                      >
+                        <StepView step={step} step3Fixed={step3Fixed} onApplyFix={() => setStep3Fixed(true)} />
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Mobile tour panel (xl: hidden on desktop, shown here inline) */}
+                  {tourVisible && (
+                    <div className="block xl:hidden border-t border-white/[0.05] bg-black/40 px-4 py-4">
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={step === 3 ? `3-${step3Fixed}` : String(step)}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.28, ease: SOFT_EASE }}
+                        >
+                          <TourCardContent step={step} step3Fixed={step3Fixed} onAction={handleNext} compact />
+                        </motion.div>
+                      </AnimatePresence>
+                    </div>
+                  )}
+
+                  {/* Footer nav — Back + step counter only */}
+                  <div className="flex items-center justify-between gap-3 border-t border-white/[0.05] px-4 py-3 bg-white/[0.011]">
+                    <div className="text-[10px] font-mono text-white/24">
+                      step {step}/5
+                    </div>
                     <button
                       onClick={handleBack}
                       disabled={step === 1}
@@ -960,19 +1126,17 @@ export default function DemoSection() {
                     >
                       Back
                     </button>
-                    <button
-                      onClick={handleNext}
-                      disabled={nextDisabled}
-                      className="rounded-md border border-white/18 bg-white/90 px-3.5 py-1.5 text-[10px] font-mono font-semibold text-black/90 transition-all duration-300 hover:bg-white/84 disabled:cursor-not-allowed disabled:border-white/[0.08] disabled:bg-white/30 disabled:text-black/45"
-                    >
-                      {ctaLabel}
-                    </button>
                   </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+
+          {/* Desktop tour: floats outside the terminal to the right */}
+          {tourVisible && phase === "steps" && (
+            <GuidedTour step={step} step3Fixed={step3Fixed} onAction={handleNext} targetTopPx={tourTargetTop} />
+          )}
+        </div>
       </div>
     </section>
   );

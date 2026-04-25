@@ -2,6 +2,9 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import GradientText from "@/components/ui/GradientText";
+import { LiquidMetalButton } from "@/components/ui/liquid-metal-button";
 
 const SOFT_EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -39,6 +42,7 @@ const FAQS = [
 
 export default function FAQSection() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const router = useRouter();
 
   return (
     <section id="faq" className="relative overflow-hidden border-t border-white/[0.04] bg-[#080808] py-24">
@@ -50,27 +54,24 @@ export default function FAQSection() {
           transition={{ duration: 0.42, ease: SOFT_EASE }}
           className="max-w-sm"
         >
-          <motion.h2
-            animate={{
-              opacity: [0.78, 0.96, 0.78],
-              textShadow: [
-                "0 0 0px rgba(255,255,255,0.0)",
-                "0 0 18px rgba(255,255,255,0.2), 0 0 36px rgba(138,180,255,0.12)",
-                "0 0 0px rgba(255,255,255,0.0)",
-              ],
-            }}
-            transition={{
-              duration: 5.2,
-              ease: SOFT_EASE,
-              repeat: Infinity,
-            }}
-            className="font-heading text-3xl font-semibold tracking-[-0.03em] text-white/85 lg:text-4xl"
-          >
-            Frequently asked questions
-          </motion.h2>
+          <h2 className="font-heading text-3xl font-semibold tracking-[-0.03em] lg:text-4xl">
+            <GradientText
+              colors={["#5227FF", "#e38de0", "#B497CF", "#5227FF"]}
+              animationSpeed={3}
+              showBorder={false}
+            >
+              Frequently asked questions
+            </GradientText>
+          </h2>
           <p className="mt-4 max-w-sm text-[14px] leading-relaxed text-white/40">
             Quick answers about how Argus fits into agent debugging workflows.
           </p>
+          <div className="mt-6">
+            <LiquidMetalButton
+              label="Join Waitlist"
+              onClick={() => router.push("/waitlist")}
+            />
+          </div>
         </motion.div>
 
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6">

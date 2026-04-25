@@ -26,8 +26,8 @@ function GmailIcon(props: React.SVGProps<SVGSVGElement>) {
 }
 
 const footerLinks = [
-  { title: "Waitlist", href: "#" },
-  { title: "Home", href: "/" },
+  { title: "Waitlist", href: "/waitlist" },
+  { title: "Home", href: "/#top" },
   { title: "Privacy", href: "/legal#privacy" },
   { title: "Terms", href: "/legal#terms" },
 ];
@@ -57,7 +57,7 @@ export function MinimalFooter() {
     <footer className="relative border-t border-white/[0.04] bg-[#080808]">
       <div className="mx-auto max-w-5xl border-white/[0.04] bg-[radial-gradient(35%_80%_at_30%_0%,rgba(255,255,255,0.06),transparent)] md:border-x">
         <div className="grid grid-cols-6 gap-8 px-6 py-10 lg:px-12">
-          <div className="col-span-6 flex flex-col gap-5 md:col-span-4">
+          <div className="col-span-6 flex flex-col gap-5 md:col-span-3">
             <Link href="/" aria-label="Varad Durge home" className="flex w-max items-center gap-3 text-white/45 transition-colors duration-300 hover:text-white/70">
               <span className="flex size-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                 V
@@ -85,11 +85,11 @@ export function MinimalFooter() {
             </div>
           </div>
 
-          <div className="col-span-6 grid grid-cols-2 gap-3 md:col-span-2">
+          <div className="col-span-6 grid grid-cols-2 gap-2 md:col-span-3">
             {footerLinks.map(({ href, title }) => (
               <Link
                 key={title}
-                className="flex min-h-[52px] items-center justify-center rounded-xl bg-white/[0.04] px-5 text-center text-[14px] font-normal text-white/70 transition-colors duration-300 hover:bg-white/[0.07] hover:text-white/90"
+                className="flex min-h-[28px] items-center justify-center rounded-lg bg-white/[0.04] px-4 text-center text-[13px] font-normal text-white/55 transition-colors duration-300 hover:bg-white/[0.07] hover:text-white/80"
                 href={href}
               >
                 {title}
