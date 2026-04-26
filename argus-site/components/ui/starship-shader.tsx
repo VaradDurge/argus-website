@@ -5,9 +5,15 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { useMemo, useRef } from "react";
 
+// Detect mobile once at module level — avoids per-frame checks
+const isMobile =
+  typeof navigator !== "undefined" &&
+  /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 function FullscreenShader() {
   const materialRef = useRef<THREE.ShaderMaterial>(null!);
   const { size } = useThree();
+  const frameSkip = useRef(0);
 
   const noiseTexture = useMemo(() => {
     const tex = new THREE.DataTexture(NOISE_DATA, 256, 256, THREE.RGBAFormat);
@@ -28,9 +34,91 @@ function FullscreenShader() {
 
   useFrame(({ clock }) => {
     if (!materialRef.current) return;
+
+    // On mobile throttle to ~30fps by skipping every other frame
+    if (isMobile) {
+      frameSkip.current ^= 1;
+      if (frameSkip.current) return;
+    }
+
     materialRef.current.uniforms.iTime.value = clock.getElapsedTime();
     materialRef.current.uniforms.iResolution.value.set(size.width, size.height);
   });
+
+  // Mobile: 25 iterations + mediump — desktop: 50 iterations + highp
+  const fragmentShader = isMobile
+    ? /* glsl */ `
+        precision mediump float;
+
+        uniform float iTime;
+        uniform vec2 iResolution;
+        uniform sampler2D iChannel0;
+
+        void mainImage(out vec4 O, vec2 I)
+        {
+            vec2 r = iResolution.xy,
+                 p = (I+I-r) / r.y * mat2(3.,4.,4.,-3.) / 1e2;
+
+            vec4 S = vec4(0.0);
+            vec4 C = vec4(1.,2.,3.,0.);
+            vec4 W;
+
+            for(float t=iTime, T=.1*t+p.y, i=0.; i<25.; i+=1.){
+                S += (cos(W=sin(i)*C)+1.)
+                     * exp(sin(i+i*T))
+                     / length(max(p,
+                       p / vec2(2.0, texture2D(iChannel0, p/exp(W.x)+vec2(i,t)/8.).r*40.0)
+                     )) / 1e4;
+
+                p += .02 * cos(i*(C.xz+8.0+i) + T + T);
+            }
+
+            O = vec4(tanh((S*S).rgb), 1.0);
+        }
+
+        void main() {
+          vec2 fragCoord = gl_FragCoord.xy;
+          vec4 O;
+          mainImage(O, fragCoord);
+          gl_FragColor = O;
+        }
+      `
+    : /* glsl */ `
+        precision highp float;
+
+        uniform float iTime;
+        uniform vec2 iResolution;
+        uniform sampler2D iChannel0;
+
+        void mainImage(out vec4 O, vec2 I)
+        {
+            vec2 r = iResolution.xy,
+                 p = (I+I-r) / r.y * mat2(3.,4.,4.,-3.) / 1e2;
+
+            vec4 S = vec4(0.0);
+            vec4 C = vec4(1.,2.,3.,0.);
+            vec4 W;
+
+            for(float t=iTime, T=.1*t+p.y, i=0.; i<50.; i+=1.){
+                S += (cos(W=sin(i)*C)+1.)
+                     * exp(sin(i+i*T))
+                     / length(max(p,
+                       p / vec2(2.0, texture(iChannel0, p/exp(W.x)+vec2(i,t)/8.).r*40.0)
+                     )) / 1e4;
+
+                p += .02 * cos(i*(C.xz+8.0+i) + T + T);
+            }
+
+            O = vec4(tanh((S*S).rgb), 1.0);
+        }
+
+        void main() {
+          vec2 fragCoord = gl_FragCoord.xy;
+          vec4 O;
+          mainImage(O, fragCoord);
+          gl_FragColor = O;
+        }
+      `;
 
   return (
     <mesh>
@@ -48,42 +136,7 @@ function FullscreenShader() {
             gl_Position = vec4(position, 1.0);
           }
         `}
-        fragmentShader={/* glsl */ `
-          precision highp float;
-
-          uniform float iTime;
-          uniform vec2 iResolution;
-          uniform sampler2D iChannel0;
-
-          void mainImage(out vec4 O, vec2 I)
-          {
-              vec2 r = iResolution.xy,
-                   p = (I+I-r) / r.y * mat2(3.,4.,4.,-3.) / 1e2;
-
-              vec4 S = vec4(0.0);
-              vec4 C = vec4(1.,2.,3.,0.);
-              vec4 W;
-
-              for(float t=iTime, T=.1*t+p.y, i=0.; i<50.; i+=1.){
-                  S += (cos(W=sin(i)*C)+1.)
-                       * exp(sin(i+i*T))
-                       / length(max(p,
-                         p / vec2(2.0, texture(iChannel0, p/exp(W.x)+vec2(i,t)/8.).r*40.0)
-                       )) / 1e4;
-
-                  p += .02 * cos(i*(C.xz+8.0+i) + T + T);
-              }
-
-              O = vec4(tanh((S*S).rgb), 1.0);
-          }
-
-          void main() {
-            vec2 fragCoord = gl_FragCoord.xy;
-            vec4 O;
-            mainImage(O, fragCoord);
-            gl_FragColor = O;
-          }
-        `}
+        fragmentShader={fragmentShader}
       />
     </mesh>
   );
@@ -103,7 +156,7 @@ export function StarshipShader({ className }: { className?: string }) {
       <Canvas
         orthographic
         camera={{ position: [0, 0, 1], zoom: 1 }}
-        dpr={[1, 1.5]}
+        dpr={isMobile ? 1 : [1, 1.5]}
         gl={{ powerPreference: "high-performance", antialias: false }}
       >
         <color attach="background" args={["#000000"]} />
