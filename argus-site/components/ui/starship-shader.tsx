@@ -156,7 +156,7 @@ export function StarshipShader({ className }: { className?: string }) {
       <Canvas
         orthographic
         camera={{ position: [0, 0, 1], zoom: 1 }}
-        dpr={isMobile ? 1 : [1, 1.5]}
+        dpr={isMobile ? [1, 1.5] : [1, 1.5]}
         gl={{ powerPreference: "high-performance", antialias: false }}
       >
         <color attach="background" args={["#000000"]} />
